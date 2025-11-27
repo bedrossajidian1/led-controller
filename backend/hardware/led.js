@@ -8,6 +8,7 @@ class LED {
     this.mode = 'off'; // off, on, blink, pulse, breathe
     this.interval = null;
     this.pwmInterval = null;
+    this.pwmTimeout = null;
     
     // Initialize GPIO
     gpiox.init_gpio(this.pin, gpiox.GPIO_MODE_OUTPUT, 0);
@@ -18,7 +19,8 @@ class LED {
     this.stopMode();
     this.mode = 'on';
     this.isOn = true;
-    gpiox.set_gpio(this.pin, 1);
+    // Apply current brightness setting
+    this.startPWM(this.brightness);
   }
 
   turnOff() {
@@ -40,7 +42,8 @@ class LED {
   setBrightness(percent) {
     this.brightness = Math.max(0, Math.min(100, percent));
     
-    if (this.mode === 'on') {
+    // Apply brightness if LED is currently on (not in blink/pulse/sos mode)
+    if (this.mode === 'on' || (this.isOn && !this.interval)) {
       this.startPWM(this.brightness);
     }
   }
@@ -48,31 +51,47 @@ class LED {
   startPWM(dutyCycle) {
     this.stopPWM();
     
-    if (dutyCycle === 0) {
+    const clampedDuty = Math.max(0, Math.min(100, dutyCycle));
+    
+    if (clampedDuty === 0) {
       gpiox.set_gpio(this.pin, 0);
+      this.isOn = false;
       return;
     }
     
-    if (dutyCycle === 100) {
+    if (clampedDuty === 100) {
       gpiox.set_gpio(this.pin, 1);
+      this.isOn = true;
       return;
     }
 
-    // Software PWM with 1ms period (1000 Hz)
-    const period = 1000; // microseconds
-    const onTime = (period * dutyCycle) / 100;
+    // Software PWM with 10ms period (100 Hz) for better stability
+    // Using longer period for more reliable timing with JavaScript
+    const period = 10; // milliseconds
+    const onTime = (period * clampedDuty) / 100;
     const offTime = period - onTime;
+    this.isOn = true;
 
-    this.pwmInterval = setInterval(() => {
+    // Use recursive setTimeout for accurate timing of on/off transitions
+    const pwmCycle = () => {
       gpiox.set_gpio(this.pin, 1);
-      setTimeout(() => gpiox.set_gpio(this.pin, 0), onTime / 1000);
-    }, period / 1000);
+      this.pwmTimeout = setTimeout(() => {
+        gpiox.set_gpio(this.pin, 0);
+        this.pwmTimeout = setTimeout(pwmCycle, offTime);
+      }, onTime);
+    };
+
+    pwmCycle();
   }
 
   stopPWM() {
     if (this.pwmInterval) {
       clearInterval(this.pwmInterval);
       this.pwmInterval = null;
+    }
+    if (this.pwmTimeout) {
+      clearTimeout(this.pwmTimeout);
+      this.pwmTimeout = null;
     }
   }
 
@@ -102,11 +121,12 @@ class LED {
   startBreathe(duration = 2000) {
     this.stopMode();
     this.mode = 'breathe';
+    this.isOn = true;
     
     let brightness = 0;
     let increasing = true;
     const steps = 50;
-    const stepDuration = duration / steps;
+    const stepDuration = duration / (steps * 2); // Divide by 2 for complete cycle
 
     this.interval = setInterval(() => {
       if (increasing) {
@@ -123,6 +143,8 @@ class LED {
         }
       }
       
+      // Update brightness and apply PWM
+      this.brightness = brightness;
       this.startPWM(brightness);
     }, stepDuration);
   }

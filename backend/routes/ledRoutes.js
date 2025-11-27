@@ -1,5 +1,6 @@
 import express from 'express';
 import * as ledController from '../controllers/ledController.js';
+import { validateBrightness, validateMode } from '../middleware/validation.js';
 
 const router = express.Router();
 
@@ -12,7 +13,7 @@ router.post('/off', ledController.turnOff);
 router.post('/toggle', ledController.toggle);
 
 // Advanced controls
-router.post('/brightness', ledController.setBrightness);
-router.post('/mode', ledController.setMode);
+router.post('/brightness', validateBrightness, ledController.setBrightness);
+router.post('/mode', validateMode, ledController.setMode);
 
 export default router;

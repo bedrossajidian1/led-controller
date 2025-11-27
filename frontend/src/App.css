@@ -196,6 +196,7 @@ h2 {
   background: #ddd;
   outline: none;
   -webkit-appearance: none;
+  appearance: none;
 }
 
 .slider::-webkit-slider-thumb {
@@ -299,8 +300,22 @@ footer {
 }
 
 @media (max-width: 768px) {
+  .app {
+    padding: 10px;
+  }
+
+  header {
+    flex-direction: column;
+    gap: 10px;
+    text-align: center;
+  }
+
   h1 {
     font-size: 1.5rem;
+  }
+  
+  h2 {
+    font-size: 1.1rem;
   }
   
   .button-group {
@@ -312,4 +327,109 @@ footer {
     height: 120px;
     font-size: 3rem;
   }
+
+  .mode-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .custom-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .control-section {
+    padding: 15px;
+  }
+
+  .slider-container {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .slider-value {
+    text-align: center;
+  }
+}
+
+/* Error Banner */
+.error-banner {
+  background: #f44336;
+  color: white;
+  padding: 12px 20px;
+  border-radius: 8px;
+  margin: 10px 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+  animation: slideDown 0.3s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.error-banner:hover {
+  background: #d32f2f;
+}
+
+.error-close {
+  background: transparent;
+  border: none;
+  color: white;
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.error-close:hover {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 50%;
+}
+
+/* Loading Indicator */
+.loading-indicator {
+  background: rgba(102, 126, 234, 0.1);
+  border: 2px solid #667eea;
+  border-radius: 8px;
+  padding: 15px;
+  text-align: center;
+  color: #667eea;
+  font-weight: 600;
+  margin: 15px 0;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+/* Disabled Button State */
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
