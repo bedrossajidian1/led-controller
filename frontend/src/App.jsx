@@ -1,9 +1,18 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect } from 'react';
+import axios from 'axios';
 import './App.css';
-import api from './services/api.js';
-import { useWebSocket } from './hooks/useWebSocket.js';
-import { debounce } from './utils/debounce.js';
-import { BRIGHTNESS_DEBOUNCE_MS } from './constants.js';
+
+// Auto-detect hostname (works with both localhost and Pi IP)
+const getBaseUrl = () => {
+  // If running on mobile/external device, use Pi's IP
+  // Otherwise use current hostname
+  const hostname = window.location.hostname;
+  return hostname === 'localhost' ? 'localhost' : hostname;
+};
+
+const BASE_HOST = getBaseUrl();
+const API_URL = `http://${BASE_HOST}:3001/api/led`;
+const WS_URL = `ws://${BASE_HOST}:3001/ws`;
 
 function App() {
   const [ledState, setLedState] = useState({
@@ -12,106 +21,90 @@ function App() {
     brightness: 100,
     pin: 17
   });
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [localBrightness, setLocalBrightness] = useState(100);
-  
-  // Refs for custom inputs (replacing DOM manipulation)
-  const blinkSpeedRef = useRef(null);
-  const breatheDurationRef = useRef(null);
-
-  // WebSocket message handler
-  const handleWebSocketMessage = (message) => {
-    if (message.type === 'state') {
-      setLedState(message.data);
-      setLocalBrightness(message.data.brightness);
-      setError(null);
-    }
-  };
+  const [ws, setWs] = useState(null);
+  const [connected, setConnected] = useState(false);
 
   // WebSocket connection
-  const { connected, error: wsError } = useWebSocket(handleWebSocketMessage);
-
-  // Update error state when WebSocket error changes
   useEffect(() => {
-    if (wsError) {
-      setError(wsError);
-    }
-  }, [wsError]);
-
-  // Initial state fetch
-  useEffect(() => {
+    const websocket = new WebSocket(WS_URL);
+    
+    websocket.onopen = () => {
+      console.log('WebSocket connected');
+      setConnected(true);
+    };
+    
+    websocket.onmessage = (event) => {
+      const message = JSON.parse(event.data);
+      if (message.type === 'state') {
+        setLedState(message.data);
+      }
+    };
+    
+    websocket.onclose = () => {
+      console.log('WebSocket disconnected');
+      setConnected(false);
+    };
+    
+    websocket.onerror = (error) => {
+      console.error('WebSocket error:', error);
+    };
+    
+    setWs(websocket);
+    
+    // Initial state fetch
     fetchState();
+    
+    return () => {
+      websocket.close();
+    };
   }, []);
 
   const fetchState = async () => {
     try {
-      setLoading(true);
-      setError(null);
-      const response = await api.get('/state');
+      const response = await axios.get(`${API_URL}/state`);
       setLedState(response.data);
-      setLocalBrightness(response.data.brightness);
-    } catch (err) {
-      setError(err.message || 'Failed to fetch LED state');
-      console.error('Error fetching state:', err);
-    } finally {
-      setLoading(false);
+    } catch (error) {
+      console.error('Error fetching state:', error);
     }
   };
 
-  const handleApiCall = async (apiCall, errorMessage) => {
+  const turnOn = async () => {
     try {
-      setError(null);
-      await apiCall();
-    } catch (err) {
-      setError(err.message || errorMessage);
-      console.error(errorMessage, err);
+      await axios.post(`${API_URL}/on`);
+    } catch (error) {
+      console.error('Error turning on:', error);
     }
   };
 
-  const turnOn = () => handleApiCall(() => api.post('/on'), 'Error turning on');
-  const turnOff = () => handleApiCall(() => api.post('/off'), 'Error turning off');
-  const toggle = () => handleApiCall(() => api.post('/toggle'), 'Error toggling');
+  const turnOff = async () => {
+    try {
+      await axios.post(`${API_URL}/off`);
+    } catch (error) {
+      console.error('Error turning off:', error);
+    }
+  };
 
-  // Debounced brightness update
-  const debouncedSetBrightness = useMemo(
-    () =>
-      debounce(async (value) => {
-        try {
-          setError(null);
-          await api.post('/brightness', { brightness: parseInt(value) });
-        } catch (err) {
-          setError(err.message || 'Error setting brightness');
-          console.error('Error setting brightness:', err);
-        }
-      }, BRIGHTNESS_DEBOUNCE_MS),
-    []
-  );
+  const toggle = async () => {
+    try {
+      await axios.post(`${API_URL}/toggle`);
+    } catch (error) {
+      console.error('Error toggling:', error);
+    }
+  };
 
-  const handleBrightnessChange = (e) => {
-    const value = e.target.value;
-    setLocalBrightness(value); // Update local state immediately for UI responsiveness
-    debouncedSetBrightness(value); // Debounced API call
+  const setBrightness = async (value) => {
+    try {
+      await axios.post(`${API_URL}/brightness`, { brightness: parseInt(value) });
+    } catch (error) {
+      console.error('Error setting brightness:', error);
+    }
   };
 
   const setMode = async (mode, speed, duration) => {
-    await handleApiCall(
-      () => api.post('/mode', { mode, speed, duration }),
-      'Error setting mode'
-    );
-  };
-
-  const handleCustomBlink = () => {
-    const speed = blinkSpeedRef.current?.value;
-    if (speed) {
-      setMode('blink', parseInt(speed));
-    }
-  };
-
-  const handleCustomBreathe = () => {
-    const duration = breatheDurationRef.current?.value;
-    if (duration) {
-      setMode('breathe', null, parseInt(duration));
+    try {
+      await axios.post(`${API_URL}/mode`, { mode, speed, duration });
+    } catch (error) {
+      console.error('Error setting mode:', error);
     }
   };
 
@@ -123,14 +116,6 @@ function App() {
           {connected ? '● Connected' : '○ Disconnected'}
         </div>
       </header>
-
-      {/* Error Display */}
-      {error && (
-        <div className="error-banner" onClick={() => setError(null)}>
-          <span>⚠️ {error}</span>
-          <button className="error-close">×</button>
-        </div>
-      )}
 
       <div className="container">
         {/* LED Status Display */}
@@ -145,24 +130,17 @@ function App() {
           </div>
         </div>
 
-        {/* Loading Indicator */}
-        {loading && (
-          <div className="loading-indicator">
-            <span>Loading...</span>
-          </div>
-        )}
-
         {/* Basic Controls */}
         <div className="control-section">
           <h2>Basic Controls</h2>
           <div className="button-group">
-            <button onClick={turnOn} className="btn btn-on" disabled={loading}>
+            <button onClick={turnOn} className="btn btn-on">
               Turn ON
             </button>
-            <button onClick={turnOff} className="btn btn-off" disabled={loading}>
+            <button onClick={turnOff} className="btn btn-off">
               Turn OFF
             </button>
-            <button onClick={toggle} className="btn btn-toggle" disabled={loading}>
+            <button onClick={toggle} className="btn btn-toggle">
               Toggle
             </button>
           </div>
@@ -176,12 +154,11 @@ function App() {
               type="range"
               min="0"
               max="100"
-              value={localBrightness}
-              onChange={handleBrightnessChange}
+              value={ledState.brightness}
+              onChange={(e) => setBrightness(e.target.value)}
               className="slider"
-              disabled={loading}
             />
-            <span className="slider-value">{localBrightness}%</span>
+            <span className="slider-value">{ledState.brightness}%</span>
           </div>
         </div>
 
@@ -192,35 +169,30 @@ function App() {
             <button 
               onClick={() => setMode('on')} 
               className={`mode-btn ${ledState.mode === 'on' ? 'active' : ''}`}
-              disabled={loading}
             >
               🔆 Solid
             </button>
             <button 
               onClick={() => setMode('blink', 500)} 
               className={`mode-btn ${ledState.mode === 'blink' ? 'active' : ''}`}
-              disabled={loading}
             >
               ✨ Blink
             </button>
             <button 
               onClick={() => setMode('pulse', 100)} 
               className={`mode-btn ${ledState.mode === 'pulse' ? 'active' : ''}`}
-              disabled={loading}
             >
               ⚡ Pulse
             </button>
             <button 
               onClick={() => setMode('breathe', 2000)} 
               className={`mode-btn ${ledState.mode === 'breathe' ? 'active' : ''}`}
-              disabled={loading}
             >
               🌊 Breathe
             </button>
             <button 
               onClick={() => setMode('sos')} 
               className={`mode-btn ${ledState.mode === 'sos' ? 'active' : ''}`}
-              disabled={loading}
             >
               🆘 SOS
             </button>
@@ -238,13 +210,14 @@ function App() {
                 defaultValue="500" 
                 min="50" 
                 max="5000"
-                ref={blinkSpeedRef}
-                disabled={loading}
+                id="blinkSpeed"
               />
               <button 
-                onClick={handleCustomBlink}
+                onClick={() => {
+                  const speed = document.getElementById('blinkSpeed').value;
+                  setMode('blink', parseInt(speed));
+                }}
                 className="btn btn-small"
-                disabled={loading}
               >
                 Apply
               </button>
@@ -256,13 +229,14 @@ function App() {
                 defaultValue="2000" 
                 min="500" 
                 max="10000"
-                ref={breatheDurationRef}
-                disabled={loading}
+                id="breatheDuration"
               />
               <button 
-                onClick={handleCustomBreathe}
+                onClick={() => {
+                  const duration = document.getElementById('breatheDuration').value;
+                  setMode('breathe', null, parseInt(duration));
+                }}
                 className="btn btn-small"
-                disabled={loading}
               >
                 Apply
               </button>

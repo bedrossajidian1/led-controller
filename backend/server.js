@@ -4,23 +4,17 @@ import { WebSocketServer } from 'ws';
 import { createServer } from 'http';
 import ledRoutes from './routes/ledRoutes.js';
 import { initHardware, cleanup } from './controllers/ledController.js';
-import { errorHandler } from './middleware/errorHandler.js';
-import { config } from './config.js';
 
 const app = express();
-const PORT = config.port;
+const PORT = 3001;
 
-// Middleware
+// CORS - Allow all origins
 app.use(cors({
-  origin: config.cors.origin,
+  origin: '*',
+  credentials: true
 }));
-app.use(express.json());
 
-// Request logging
-app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
-  next();
-});
+app.use(express.json());
 
 // Routes
 app.use('/api/led', ledRoutes);
@@ -33,58 +27,90 @@ app.get('/api/health', (req, res) => {
 // Create HTTP server
 const server = createServer(app);
 
-// Create WebSocket server
-const wss = new WebSocketServer({ server, path: '/ws' });
+// Create WebSocket server with proper configuration
+const wss = new WebSocketServer({ 
+  server,
+  path: '/ws',
+  // Add these options
+  perMessageDeflate: false,
+  clientTracking: true,
+  // Handle CORS for WebSocket
+  verifyClient: (info) => {
+    // Allow all origins for now
+    return true;
+  }
+});
 
-wss.on('connection', (ws) => {
-  console.log('WebSocket client connected');
+wss.on('connection', (ws, req) => {
+  const clientIp = req.socket.remoteAddress;
+  console.log(`✅ WebSocket client connected from ${clientIp}`);
   
+  // Mark connection as alive
+  ws.isAlive = true;
+  
+  // Handle pong response
+  ws.on('pong', () => {
+    ws.isAlive = true;
+  });
+  
+  // Handle messages
   ws.on('message', (message) => {
     try {
       const data = JSON.parse(message.toString());
-      console.log('Received:', data);
-      // Echo back or handle commands if needed
+      if (data.type === 'ping') {
+        ws.send(JSON.stringify({ type: 'pong' }));
+      }
     } catch (error) {
-      console.error('Invalid WebSocket message:', error.message);
-      ws.send(JSON.stringify({ type: 'error', message: 'Invalid message format' }));
+      // Ignore non-JSON messages
     }
   });
   
-  ws.on('error', (error) => {
-    console.error('WebSocket error:', error);
+  ws.on('close', (code, reason) => {
+    console.log(`❌ WebSocket client disconnected (${code}): ${reason || 'No reason'}`);
   });
   
-  ws.on('close', () => {
-    console.log('WebSocket client disconnected');
+  ws.on('error', (error) => {
+    console.error('WebSocket error:', error.message);
   });
 });
 
-// Error handling middleware (must be last)
-app.use(errorHandler);
+// Heartbeat to detect broken connections
+const heartbeatInterval = setInterval(() => {
+  wss.clients.forEach((ws) => {
+    if (ws.isAlive === false) {
+      console.log('💔 Terminating dead connection');
+      return ws.terminate();
+    }
+    
+    ws.isAlive = false;
+    ws.ping();
+  });
+}, 30000);
 
-// Initialize hardware with WebSocket server
-try {
-  initHardware(wss);
-} catch (error) {
-  console.error('❌ Failed to initialize hardware:', error.message);
-  console.error('Server will start but hardware functions will be unavailable');
-}
+wss.on('close', () => {
+  clearInterval(heartbeatInterval);
+});
+
+// Initialize hardware
+await initHardware(wss);
 
 // Start server
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 LED Controller API running on http://localhost:${PORT}`);
-  console.log(`🔌 WebSocket server running on ws://localhost:${PORT}/ws`);
-  console.log(`📡 Access from network: http://<your-pi-ip>:${PORT}`);
-  console.log(`⚙️  Environment: ${config.environment}`);
+  console.log(`🚀 LED Controller API running on http://0.0.0.0:${PORT}`);
+  console.log(`🔌 WebSocket server running on ws://0.0.0.0:${PORT}/ws`);
+  console.log(`📡 Access from network: http://192.168.0.109:${PORT}`);
 });
 
 // Graceful shutdown
 const gracefulShutdown = () => {
   console.log('\n🛑 Shutting down gracefully...');
   cleanup();
-  server.close(() => {
-    console.log('✅ Server closed');
-    process.exit(0);
+  clearInterval(heartbeatInterval);
+  wss.close(() => {
+    server.close(() => {
+      console.log('✅ Server closed');
+      process.exit(0);
+    });
   });
 };
 
