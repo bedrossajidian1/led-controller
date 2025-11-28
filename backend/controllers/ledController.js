@@ -164,6 +164,19 @@ export const setMode = (req, res, next) => {
   }
 };
 
+// Get button state (for debugging)
+export const getButtonState = (req, res, next) => {
+  if (!button) {
+    return res.status(503).json({ error: 'Button not initialized' });
+  }
+  try {
+    const state = button.getState();
+    res.json(state);
+  } catch (error) {
+    next(error);
+  }
+};
+
 // Cleanup on shutdown
 export const cleanup = () => {
   if (led) {

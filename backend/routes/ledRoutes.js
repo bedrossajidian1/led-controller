@@ -7,6 +7,9 @@ const router = express.Router();
 // Get current state
 router.get('/state', ledController.getState);
 
+// Get button state (for debugging)
+router.get('/button-state', ledController.getButtonState);
+
 // Basic controls
 router.post('/on', ledController.turnOn);
 router.post('/off', ledController.turnOff);
